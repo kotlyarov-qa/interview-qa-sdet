@@ -13,3 +13,4 @@
 exports/
 **/.playwright-cli/
 output/
+.idea/
