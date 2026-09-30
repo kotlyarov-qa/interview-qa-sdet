@@ -3,8 +3,17 @@ import json
 import pytest
 import httpx
 
-AGENT_URL = os.getenv("AGENT_URL", "http://localhost:8092")
-UI_URL = os.getenv("UI_URL", "http://localhost:3082")
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+AGENT_PORT = os.getenv("PORT", "8092")
+AGENT_URL = os.getenv("AGENT_URL", f"http://localhost:{AGENT_PORT}")
+UI_URL = os.getenv("UI_PORT", "3082")
+if not UI_URL.startswith("http"):
+    UI_URL = f"http://localhost:{UI_URL}"
 
 @pytest.fixture(scope="session")
 def agent_client():
