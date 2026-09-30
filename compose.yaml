@@ -1,0 +1,60 @@
+name: interview-qa
+services:
+  agent:
+    build: .
+    ports:
+      - "127.0.0.1:${PORT:-8092}:8090"
+    environment:
+      PORT: 8090
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      MODEL_BASE_URL: ${MODEL_BASE_URL:-https://api.openai.com/v1}
+      MODEL_NAME: ${MODEL_NAME:-}
+    volumes:
+      - ./artifacts:/app/artifacts
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8090/health').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  librechat:
+    image: ghcr.io/danny-avila/librechat:v0.8.0@sha256:adcb326f43a971b53df0fbca5f4769c8e56fafbdf834c9dd8c7e4924788f0152
+    ports:
+      - "127.0.0.1:${UI_PORT:-3082}:3080"
+    depends_on:
+      agent:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3080
+      MONGO_URI: mongodb://mongodb:27017/LibreChat
+      DOMAIN_CLIENT: http://localhost:${UI_PORT:-3082}
+      DOMAIN_SERVER: http://localhost:${UI_PORT:-3082}
+      ENDPOINTS: custom
+      SEARCH: "false"
+      ALLOW_EMAIL_LOGIN: "true"
+      ALLOW_REGISTRATION: "true"
+      ALLOW_UNVERIFIED_EMAIL_LOGIN: "true"
+      JWT_SECRET: ${JWT_SECRET:-interview-local-demo-jwt-secret-please-replace-on-remote}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-interview-local-demo-refresh-secret-replace-on-remote}
+      CREDS_KEY: ${CREDS_KEY:-f34be427ebb29de8d88c107a71546019685ed8b241d8f2ed00c3df97ad2566f0}
+      CREDS_IV: ${CREDS_IV:-e2341419ec3dd3d19b13a1a87fafcbfb}
+    volumes:
+      - ./librechat.yaml:/app/librechat.yaml:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3080/api/config').then(r=>r.json()).then(c=>{if(c.appTitle!=='LibreChat')process.exit(1)})"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+  mongodb:
+    image: mongo:8.0.5@sha256:7bd28e5eea1c5766a084d5818254046f3ebe3b8f20a65e3a274640189e296667
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+volumes:
+  mongo-data:
