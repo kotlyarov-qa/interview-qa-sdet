@@ -22,7 +22,8 @@ def test_chat_smoke_alice_success():
     4. Проверка отображения ответа агента с корректной суммой 150000 коп.
     """
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        headed = os.getenv("HEADED", "0") == "1"
+        browser = p.chromium.launch(headless=not headed, slow_mo=700 if headed else 0)
         context = browser.new_context()
         page = context.new_page()
 
