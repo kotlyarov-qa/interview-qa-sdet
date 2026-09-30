@@ -1,104 +1,90 @@
-# QA / SDET: стартовое окружение
+# Тестовое задание: AI-first QA / SDET Engineer — LibreChat ЖКХ Агент
 
-Условие: [qa.pdf](qa.pdf). Контракт и данные: [CONTRACT.md](CONTRACT.md).
-Эта папка самодостаточна: соседние задания для запуска не нужны.
+* **Кандидат:** Павел Котляров ([GitHub: kotlyarov-qa](https://github.com/kotlyarov-qa))
+* **Email:** `pavel.kotlyarov.it@gmail.com`
+* **Объект проверки:** LibreChat в Docker, сценарий «Сведения о начислениях ЖКХ».
 
-## Запуск
+---
 
-Требуется Docker Engine/Desktop с Compose v2+, интернет для первой сборки.
-Ориентир по ресурсам: 6 ГБ свободной RAM и 8 ГБ диска.
-Проверено на Linux amd64; на другой архитектуре организатор сначала проверяет запуск
-или выдаёт удалённую среду. При занятом порте измените PORT в `.env`.
+## 1. Быстрый старт (Запуск окружения)
+
+Требуется Docker Engine / Docker Desktop и Python 3.11+.
 
 ```bash
+# 1. Клонирование и подготовка .env
 cp .env.example .env
+
+# 2. Поднятие контейнеров (агент + LibreChat UI + MongoDB)
 docker compose up -d --build --wait
-docker compose exec -e AGENT_URL=http://localhost:8090 agent npm run preflight
+
+# 3. Установка тестовых зависимостей Python
+pip install -r requirements.txt
+playwright install chromium
 ```
 
-Последняя команда выполняет полный агентный цикл на mock без платного API.
-API: `http://localhost:8092`. Логи: `artifacts/runs.jsonl`.
+Сервисы доступны:
+* **LibreChat Web UI:** `http://localhost:3082`
+* **Agent Bridge API:** `http://localhost:8092`
+* **Трассы и логи:** `artifacts/runs.jsonl`
 
+---
+
+## 2. Запуск тестов одной командой
+
+### Регрессионный набор (API тесты контрактов, прав и дефекта):
 ```bash
-curl http://localhost:8092/run \
-  -H 'Authorization: Bearer demo-alice' \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"Начисления 10001 за 2026-08","mode":"mock","tool_mode":"success"}'
+pytest tests/test_agent_api.py -v
 ```
+> **Результат:** 7 PASS, 1 FAIL. 
+> Падающий тест `test_08_EDUCATIONAL_DEFECT_timeout_masks_as_ok` возвращает ненулевой код выхода (Exit Code 1), доказывая наличие учебного дефекта в `src/adapter.ts`.
 
-## Разработка
-
-Node 24.14.0 (`.nvmrc`), `npm ci`, `npm run typecheck`, `npm test`.
-Без Node на хосте: `docker compose exec agent npm run typecheck` и `docker compose exec agent npm test`.
-После изменения файлов пересоберите контейнер: `docker compose up -d --build --wait`.
-Для запуска сервера на хосте: `PORT=8092 npm start` (сначала остановите Docker-сервис).
-Python 3.12 + uv 0.11.6: `uv sync --frozen`, `uv run python scripts/sample_run.py`.
-В примере один вызов API; evaluator и сценарии по PDF реализует кандидат.
-Начальные npm-тесты проверяют инфраструктуру и не означают отсутствие учебного дефекта.
-
-## Реальная модель
-
-Организатор отдельно выдаёт coding agent и доступ к модели с квотой.
-Заполните MODEL_* в `.env`, затем `docker compose up -d --force-recreate agent`.
-Пример: `RUN_MODE=real uv run python scripts/sample_run.py`.
-Ключ хранится только в `.env`, сервер не передаёт его клиенту. Не включайте `.env` в сдачу.
-Прогон реальной модели до выдачи ключа имеет статус BLOCKED; mock его не заменяет.
-
-## Сброс и сдача
-
-Данные инструментов неизменяемые; каждый `/run` — новый граф без истории.
-Сброс процесса: `docker compose restart agent`. Предыдущие JSONL не влияют на новые запуски;
-сохраняйте их как доказательства, не очищайте перед сдачей.
-Остановка: `docker compose down`.
-Настройки coding agent, два skills, требуемые тесты, AI_USAGE.md и отчёт создаёт кандидат.
-
-## Браузер: настоящий LibreChat
-
-UI: http://localhost:3082. Версия v0.8.0, образ закреплён digest; исходный commit
-`b7d13cec6f3a63c7b81f5781f6b5cab289e33d70`.
-
-Создать локальный учебный логин один раз:
+### Браузерный UI Smoke-тест на Playwright:
 ```bash
-docker compose exec -T librechat npm run create-user -- candidate@example.test Candidate candidate demo-browser-password --email-verified=true
+pytest tests/test_chat_smoke.py -v
 ```
-Войти с `candidate@example.test` / `demo-browser-password`.
-В меню модели выбрать **alice-success → interview-mock**.
-Отправить `Начисления 10001 за 2026-08`: ожидается 150000 коп.
-Другие endpoint-профили переключают сессию/режим инструмента; `interview-real`
-использует настоящую модель при заполненных MODEL_*.
+*(Также доступен TypeScript-вариант в `e2e/chat.spec.ts`: `npx playwright test`)*.
 
-Логин LibreChat — вход в тестовый интерфейс. Alice/Bob — две **учебные серверные
-сессии инструментов**, выбранные конфигурацией endpoint, не роли пользователей LibreChat.
-Оба профиля намеренно доступны тестировщику. Права проверяются по токену инструмента,
-который модель не выбирает. Это стенд проверки агента, не проверка multi-tenant авторизации LibreChat.
+### Запуск всего набора тестов:
+```bash
+pytest -v
+```
 
-Путь браузерной проверки: LibreChat UI → custom endpoint → bridge `/v1/chat/completions`
-→ настоящий `@librechat/agents` → учебные инструменты. Встроенный Agent Builder LibreChat
-в этой конфигурации не используется; объект проверки и все точки подмены описаны явно.
+---
 
-Playwright уже закреплён в npm: `npm ci`, `npx playwright install chromium`.
-Конфигурация: `playwright.config.ts`; свои браузерные тесты добавляйте в `e2e/`.
-На Linux для браузера могут понадобиться библиотеки: `npx playwright install --with-deps chromium`.
+## 3. Найденный учебный дефект
 
-Новый сценарий начинайте с New chat. Полный сброс только этого учебного стенда:
-`docker compose down -v`, `docker compose up -d --wait`, затем снова создайте логин.
-Это удаляет историю чатов и пользователей локальной MongoDB.
-Модель/инструменты не требуют внешнего Langfuse: JSONL достаточно.
+* **Где зашит:** `src/adapter.ts:3`
+  ```typescript
+  export function adaptCharges(result: Result<Charge[]>): Result<Charge[]> {
+    if (result.status === 'timeout') return { status: 'ok', data: [] };
+    return result;
+  }
+  ```
+* **Суть дефекта:** При таймауте источника данных начислений адаптер стирает ошибку `timeout` и передает агенту успешный статус `ok` с пустым списком начислений. В результате агент дезинформирует жителя заявлением: *«Начислено 0 коп. Источник успешно прочитан»*.
+* **Нарушение контракта:** Прямое нарушение правила из `qa.pdf`: *«Таймаут, ошибка и запрет доступа не означают нулевые начисления»*.
+* **Подробный баг-репорт:** См. [docs/BUG_REPORT.md](docs/BUG_REPORT.md).
 
-## Работа и сдача через GitHub
+---
 
-Создайте отдельный репозиторий **в своём GitHub-аккаунте** и перенесите в него
-только папку своего задания из стартового комплекта. Работайте и сохраняйте
-результат в этом репозитории. Первый коммит — стартовый комплект, последующие
-коммиты — изменения по ходу выполнения; сохраните историю работы.
+## 4. Сценарий живого изменения для защиты (Live Demo для Антона)
 
-Репозиторий может быть публичным или приватным. Для приватного заранее
-предоставьте доступ проверяющему; его GitHub-аккаунт уточните у организатора.
-Не публикуйте `.env`, ключи, лицензии и другие секреты.
+Для демонстрации взаимосвязи моков и ассертов:
+1. Открываем `src/adapter.ts` и исправляем дефект, возвращая чистый `result`:
+   ```typescript
+   export function adaptCharges(result: Result<Charge[]>): Result<Charge[]> {
+     return result; // Убираем маскирование timeout -> ok
+   }
+   ```
+2. Пересобираем агент: `docker compose up -d --build --wait agent`.
+3. Запускаем тест `test_08_EDUCATIONAL_DEFECT_timeout_masks_as_ok`.
+4. **Результат:** Тест теперь проверяет, что статус `timeout` успешно дошел до выхода, и тест проходит (PASS).
 
-Для сдачи отправьте:
-- ссылку на свой GitHub-репозиторий и SHA финального коммита;
-- README с командами запуска и проверок;
-- код, тесты, отчёт и остальные артефакты из условия задания.
+---
 
-Одного ZIP-архива или patch вместо GitHub-репозитория недостаточно.
+## 5. Документация проекта
+
+* 📋 [docs/TEST_MATRIX.md](docs/TEST_MATRIX.md) — Матрица 10 сценариев с приоритетами, рисками и статусами.
+* 🐛 [docs/BUG_REPORT.md](docs/BUG_REPORT.md) — Воспроизводимый баг-репорт с цепочкой событий из трейса.
+* 🚦 [docs/RELEASE_DECISION.md](docs/RELEASE_DECISION.md) — Заключение о блокировке релиза (NO-GO).
+* 🤖 [docs/AI_USAGE.md](docs/AI_USAGE.md) — Отчет об использовании coding agent, навыки и ручные исправления.
+* 🛠 [skills/](skills/) — Настроенные скиллы агента (`add-regression-test`, `analyze-trace`).
